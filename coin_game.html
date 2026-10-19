@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>동전 뒤집기 게임</title>
+<style>
+body{font-family:sans-serif;background:#1e2a3a;color:#fff;text-align:center;margin:0;padding:20px}
+h1{margin:10px}
+#board{display:flex;justify-content:center;gap:12px;margin:10px 0 20px;flex-wrap:wrap}
+.card{background:#2c3e55;border-radius:10px;padding:10px 18px;min-width:90px}
+.card small{display:block;opacity:.7;font-size:13px}
+.card b{font-size:26px}
+#msg{font-size:20px;min-height:32px;margin:12px;font-weight:bold}
+#coins{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:700px;margin:15px auto;min-height:60px}
+.coin{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;border:3px solid #fff3;font-size:18px;color:#222;background:#bbb}
+.coin.H{background:#ffd54a}
+.coin.T{background:#9aa5b1}
+.coin.spin{background:#bbb;animation:spin .25s linear infinite}
+@keyframes spin{to{transform:rotateY(360deg)}}
+.sp{font-size:16px;padding:6px 16px;margin:0 3px;background:#3b4d66}
+.sp.on{background:#2196f3}
+#btn{font-size:22px;padding:12px 36px;border:0;border-radius:10px;background:#4caf50;color:#fff;cursor:pointer}
+button:disabled{background:#666}
+button{border:0;border-radius:10px;color:#fff;cursor:pointer}
+#btn{padding:12px 36px;background:#4caf50}
+#btn:disabled{background:#666}
+#nickrow{margin:6px 0 14px}
+#nick{font-size:16px;padding:8px 10px;border-radius:8px;border:0;width:140px;text-align:center}
+#rank{max-width:420px;margin:30px auto 0;background:#2c3e55;border-radius:12px;padding:14px}
+#rank h2{margin:0 0 8px;font-size:20px}
+#rank table{width:100%;border-collapse:collapse;font-size:16px}
+#rank td,#rank th{padding:6px 4px;border-bottom:1px solid #fff2}
+#rank tr.me{color:#ffd54a;font-weight:bold}
+#rstat{font-size:12px;opacity:.6;margin-top:6px}
+#probs{background:#2c3e55;border-radius:10px;max-width:420px;margin:0 auto 14px;padding:10px 14px;font-size:16px}
+#probs div{display:flex;justify-content:space-between;padding:2px 0}
+#auto{margin:14px 0}
+#autobtn{font-size:18px;padding:10px 24px;background:#ff9800}
+#autobtn.on{background:#e53935}
+#target{width:70px;font-size:16px;padding:6px;border-radius:8px;border:0;text-align:center}
+</style></head><body>
+<h1>🪙 동전 뒤집기</h1>
+<div id="nickrow">닉네임: <input id="nick" maxlength="12" placeholder="이름 입력"></div>
+<div id="board">
+  <div class="card"><small>현재 동전</small><b id="n">1</b></div>
+  <div class="card"><small>던진 횟수</small><b id="throws">0</b></div>
+  <div class="card"><small>최대 동전 수</small><b id="best">1</b></div>
+</div>
+<div id="coins"></div>
+<div id="probs"></div>
+<div id="msg">버튼을 눌러 동전을 던지세요!</div>
+<div style="margin-bottom:14px">회전 속도:
+<button class="sp on" data-s="1">1배속</button><button class="sp" data-s="2">2배속</button><button class="sp" data-s="4">4배속</button></div>
+<button id="btn">던지기</button>
+<div id="auto"><button id="autobtn">▶ 자동 던지기</button><br><br>동전이 <input id="target" type="number" min="2" value="8"> 개 이상이 되면 자동 멈춤</div>
+<p style="opacity:.7;font-size:14px;margin-top:30px">
+모두 앞면 → 동전 2배 · 앞면 ≥ 뒷면 → 같은 개수 유지 · 뒷면이 더 많음 → 실패, 1개부터</p>
+<div id="rank"><h2>🏆 랭킹 TOP 10</h2><table id="rtable"></table><div id="rstat"></div></div>
+<script>
+// ===== 랭킹 설정: Supabase 값을 넣으면 모두가 공유하는 랭킹, 비워두면 이 기기에만 저장 =====
+const SUPABASE_URL='';      // 예: https://abcd.supabase.co
+const SUPABASE_KEY='';      // anon public key
+// ==================================================================================
+const $=id=>document.getElementById(id);
+const ONLINE=!!(SUPABASE_URL&&SUPABASE_KEY);
+const H_={apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'};
+const esc=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function getNick(){return ($('nick').value||'').trim().slice(0,12);}
+async function loadRank(){
+  try{
+    let rows;
+    if(ONLINE){
+      const r=await fetch(SUPABASE_URL+'/rest/v1/ranking?select=nickname,best&order=best.desc,updated_at.asc&limit=10',{headers:H_});
+      if(!r.ok)throw 0;rows=await r.json();
+    }else rows=JSON.parse(localStorage.getItem('coinRank')||'[]').sort((a,b)=>b.best-a.best).slice(0,10);
+    const me=getNick();
+    $('rtable').innerHTML='<tr><th>순위</th><th>닉네임</th><th>최대 동전</th></tr>'+
+      (rows.length?rows.map((x,i)=>`<tr class="${x.nickname===me?'me':''}"><td>${i+1}</td><td>${esc(x.nickname)}</td><td>${x.best}</td></tr>`).join(''):'<tr><td colspan=3>아직 기록이 없어요</td></tr>');
+    $('rstat').textContent=ONLINE?'온라인 랭킹 (모두 공유)':'이 기기에만 저장되는 임시 랭킹';
+  }catch(e){$('rstat').textContent='랭킹을 불러오지 못했어요';}
+}
+async function submitRank(){
+  const nick=getNick();if(!nick||best<2)return;
+  try{
+    if(ONLINE){
+      const q=await fetch(SUPABASE_URL+'/rest/v1/ranking?select=best&nickname=eq.'+encodeURIComponent(nick),{headers:H_});
+      const old=q.ok?await q.json():[];
+      if(old.length&&old[0].best>=best){loadRank();return;}
+      await fetch(SUPABASE_URL+'/rest/v1/ranking?on_conflict=nickname',{method:'POST',headers:{...H_,Prefer:'resolution=merge-duplicates'},body:JSON.stringify({nickname:nick,best:best,updated_at:new Date().toISOString()})});
+    }else{
+      const a=JSON.parse(localStorage.getItem('coinRank')||'[]');
+      const f=a.find(x=>x.nickname===nick);
+      if(f){if(f.best<best)f.best=best;}else a.push({nickname:nick,best});
+      localStorage.setItem('coinRank',JSON.stringify(a));
+    }
+  }catch(e){}
+  loadRank();
+}
+$('nick').value=localStorage.getItem('coinNick')||'';
+$('nick').onchange=()=>{localStorage.setItem('coinNick',getNick());submitRank();loadRank();};
+loadRank();
+
+let n=1,best=1,throws=0,busy=false,speed=1;
+document.querySelectorAll('.sp').forEach(b=>b.onclick=()=>{speed=+b.dataset.s;document.querySelectorAll('.sp').forEach(x=>x.classList.toggle('on',x===b));});
+function score(){$('n').textContent=n;$('throws').textContent=throws;$('best').textContent=best;}
+function draw(state,res){
+  $('coins').innerHTML='';
+  for(let i=0;i<n;i++){
+    const d=document.createElement('div');
+    if(state==='spin'){d.className='coin spin';d.style.animationDuration=(0.25/speed)+'s';d.textContent='?';}
+    else if(state==='result'){d.className='coin '+res[i];d.textContent=res[i]==='H'?'앞':'뒤';}
+    else{d.className='coin';d.textContent='?';}
+    $('coins').appendChild(d);
+  }
+}
+function probs(){
+  // n개를 던질 때: 모두 앞면 = 1/2^n, 앞면>=뒷면 이면서 모두앞면 아님 = 유지, 뒷면>앞면 = 실패
+  let lf=[0];for(let i=1;i<=n;i++)lf[i]=lf[i-1]+Math.log(i);
+  let all=Math.exp(-n*Math.LN2),keep=0,fail=0;
+  for(let k=0;k<=n;k++){
+    const p=Math.exp(lf[n]-lf[k]-lf[n-k]-n*Math.LN2);
+    if(k===n)continue;
+    if(k>=n-k)keep+=p;else fail+=p;
+  }
+  const f=x=>x*100>=0.01?(x*100).toFixed(2)+'%':(x>0?'0.01% 미만':'0%');
+  $('probs').innerHTML=`<div style="opacity:.7;font-size:13px">다음 던지기 확률 (동전 ${n}개)</div>
+  <div><span style="color:#7CFC8A">🎉 성공 (모두 앞면 → 2배)</span><b>${f(all)}</b></div>
+  <div><span style="color:#ffd54a">😐 유지 (앞면 ≥ 뒷면)</span><b>${f(keep)}</b></div>
+  <div><span style="color:#ff6b6b">💥 실패 (뒷면이 더 많음)</span><b>${f(fail)}</b></div>`;
+}
+const _score=score;score=function(){_score();probs();};
+let auto=false;
+function setAuto(on,msg){
+  auto=on;$('autobtn').classList.toggle('on',on);
+  $('autobtn').textContent=on?'■ 자동 중지':'▶ 자동 던지기';
+  $('btn').disabled=on||busy;
+  if(msg){$('msg').textContent=msg;$('msg').style.color='#7ec8ff';}
+}
+function throwOnce(){
+  if(busy)return;busy=true;$('btn').disabled=true;
+  throws++;score();
+  const res=Array.from({length:n},()=>Math.random()<0.5?'H':'T');
+  const prevBest=best;
+  const h=res.filter(x=>x==='H').length,t=n-h,cnt=n;
+  $('msg').style.color='#fff';$('msg').textContent='던지는 중...';
+  draw('spin');
+  setTimeout(()=>{
+    draw('result',res);
+    let m,c,next=n;
+    if(h===cnt){next=cnt*2;best=Math.max(best,next);m=`🎉 모두 앞면! 동전이 ${next}개로 늘어납니다`;c='#7CFC8A';}
+    else if(h>=t){m=`😐 앞면 ${h} / 뒷면 ${t} — 유지! 같은 개수로 다시`;c='#ffd54a';}
+    else{next=1;m=`💥 앞면 ${h} / 뒷면 ${t} — 실패! 1개부터 다시 시작`;c='#ff6b6b';}
+    $('msg').textContent=m;$('msg').style.color=c;
+    const grew=best>prevBest;
+    n=next;busy=false;score();
+    $('btn').disabled=auto;
+    if(grew){if(!getNick())$('msg').textContent+=' (닉네임을 입력하면 랭킹에 등록돼요)';submitRank();}
+    if(auto){
+      const target=Math.max(2,parseInt($('target').value)||2);
+      if(n>=target)setAuto(false,`🛑 동전이 ${n}개가 되어 자동 던지기를 멈췄어요 (목표 ${target}개 이상)`);
+      else setTimeout(()=>{if(auto)throwOnce();},500/speed);
+    }
+  },1200/speed);
+}
+$('btn').onclick=throwOnce;
+$('autobtn').onclick=()=>{
+  if(auto){setAuto(false,'자동 던지기를 멈췄어요');return;}
+  const target=Math.max(2,parseInt($('target').value)||2);
+  if(n>=target){$('msg').textContent=`현재 동전이 ${n}개라 목표(${target}개)보다 작게 설정해야 해요`;$('msg').style.color='#ff6b6b';return;}
+  setAuto(true);throwOnce();
+};
+draw('idle');score();
+</script></body></html>
